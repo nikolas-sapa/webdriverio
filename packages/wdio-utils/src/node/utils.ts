@@ -219,15 +219,30 @@ const _install = async (args: InstallOptions & { unpack?: true | undefined }, re
          * output directory and skip re-downloading, causing the retry to fail
          * with "exists but executable is missing" (see issue #15608).
          */
+        log.error(`${details}, retrying ...`)
+        /**
+         * Clean up any partially extracted files before retrying.
+         * Without this, @puppeteer/browsers may see an existing (incomplete)
+         * output directory and skip re-downloading, causing the retry to fail
+         * with "exists but executable is missing" (see issue #15608).
+         *
+         * The retry-existence check in @puppeteer/browsers tests the
+         * *installation directory* (`<cacheDir>/<browser>/<platform>-<buildId>`)
+         * — the same directory its `Cache` clears. `computeExecutablePath`
+         * points *inside* that directory, so remove the installation dir
+         * itself; removing only its parent-relative subdirectory would leave
+         * the marker the retry check keys on.
+         */
         try {
-            const executablePath = computeExecutablePath({
-                browser: args.browser,
-                buildId: args.buildId,
-                platform: detectBrowserPlatform(),
-                cacheDir: args.cacheDir,
-            })
-            const buildDir = path.dirname(executablePath)
-            await fsp.rm(buildDir, { recursive: true, force: true }).catch(() => {})
+            const platform = detectBrowserPlatform()
+            if (platform) {
+                const buildDir = path.join(
+                    args.cacheDir,
+                    args.browser,
+                    `${platform}-${args.buildId}`
+                )
+                await fsp.rm(buildDir, { recursive: true, force: true }).catch(() => {})
+            }
         } catch {
             /**
              * If cleanup fails, continue with retry anyway — it may still succeed
